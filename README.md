@@ -1,18 +1,25 @@
 # OpenReplay MCP Server
 
-An MCP (Model Context Protocol) server that provides AI-powered analytics for OpenReplay sessions. This server enables LLMs to query and analyze user sessions, identify patterns, detect issues, and provide insights about user behavior.
+An MCP (Model Context Protocol) server that provides AI-powered analytics for OpenReplay sessions. This server enables LLMs to query and analyze user sessions through OpenReplay's API.
 
-## Features
+## Authentication Methods
 
-The MCP server provides flexible tools that allow LLMs to:
+### API Key Authentication (Current)
+The server currently uses API key authentication which provides access to:
+- List all projects
+- Get user sessions by user ID
+- Get session events
+- User details
 
-- **Search Sessions**: Query sessions with complex filters (user properties, errors, performance metrics, custom events)
-- **Analyze User Journeys**: Track complete user paths across multiple sessions
-- **Identify Drop-offs**: Find where users abandon flows
-- **Detect Bugs & Issues**: Aggregate and analyze errors across sessions
-- **Performance Analysis**: Get metrics like page load times, LCP, TTI
-- **Funnel Analysis**: Analyze conversion paths and drop-off points
-- **Custom Queries**: Execute custom queries for advanced analysis
+**Note**: API key authentication has limited access. For full functionality (session search, metrics, funnels, etc.), JWT authentication is required.
+
+### JWT Authentication (Future)
+Full access to all OpenReplay features including:
+- Complete session search with filters
+- Performance metrics and analytics
+- Funnel analysis
+- Error tracking and aggregation
+- Custom dashboards and metrics
 
 ## Installation
 
@@ -30,9 +37,10 @@ cp .env.example .env
 
 2. Configure your OpenReplay credentials:
 ```env
-# OPENREPLAY_API_URL is optional - defaults to https://api.openreplay.com
+# OPENREPLAY_API_URL is optional - defaults to https://app.openreplay.com
+# For self-hosted instances, use your instance URL
 OPENREPLAY_API_KEY=your_api_key
-OPENREPLAY_PROJECT_ID=your_project_id
+OPENREPLAY_PROJECT_KEY=your_project_key
 ```
 
 ## Usage with Claude Desktop

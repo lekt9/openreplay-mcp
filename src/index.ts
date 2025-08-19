@@ -14,9 +14,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Configuration
-const OPENREPLAY_API_URL = process.env.OPENREPLAY_API_URL || "https://api.openreplay.com";
+const OPENREPLAY_API_URL = process.env.OPENREPLAY_API_URL || "https://app.openreplay.com";
 const OPENREPLAY_API_KEY = process.env.OPENREPLAY_API_KEY || "";
-const OPENREPLAY_PROJECT_ID = process.env.OPENREPLAY_PROJECT_ID || "";
+const OPENREPLAY_PROJECT_KEY = process.env.OPENREPLAY_PROJECT_KEY || process.env.OPENREPLAY_PROJECT_ID || "";
 
 class OpenReplayMCP {
   private server: Server;
@@ -37,9 +37,9 @@ class OpenReplayMCP {
 
     // Initialize API client
     this.api = axios.create({
-      baseURL: OPENREPLAY_API_URL,
+      baseURL: `${OPENREPLAY_API_URL}/api`,
       headers: {
-        "Authorization": `Bearer ${OPENREPLAY_API_KEY}`,
+        "Authorization": OPENREPLAY_API_KEY,
         "Content-Type": "application/json",
       },
     });
@@ -52,31 +52,54 @@ class OpenReplayMCP {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
-          name: "search_sessions",
-          description: "Search and filter sessions with various criteria like date range, user properties, errors, performance metrics, custom events, etc.",
+          name: "list_projects",
+          description: "Get list of all projects in the organization",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: "get_user_sessions",
+          description: "Get sessions for a specific user ID (API key authentication supported)",
           inputSchema: {
             type: "object",
             properties: {
+              userId: { type: "string", description: "The user ID to get sessions for" },
+              startDate: { type: "string", description: "Start date in ISO format" },
+              endDate: { type: "string", description: "End date in ISO format" }
+            },
+            required: ["userId"]
+          }
+        },
+        {
+          name: "search_sessions",
+          description: "[Requires userId with API key auth] Search and filter sessions. Full search requires JWT authentication.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              userId: { type: "string", description: "Required: User ID to search sessions for" },
               startDate: { type: "string", description: "Start date in ISO format" },
               endDate: { type: "string", description: "End date in ISO format" },
               filters: {
                 type: "array",
-                description: "Array of filters to apply",
+                description: "Filters (limited with API key auth)",
                 items: {
                   type: "object",
                   properties: {
-                    type: { type: "string", description: "Filter type (e.g., USER_ID, USER_BROWSER, USER_OS, USER_DEVICE, USER_COUNTRY, DURATION, ERROR, CUSTOM, METADATA, etc.)" },
-                    operator: { type: "string", description: "Operator (is, is_not, contains, starts_with, ends_with, greater, less, between)" },
+                    type: { type: "string", description: "Filter type" },
+                    operator: { type: "string", description: "Operator" },
                     value: { type: ["string", "number", "array"], description: "Filter value" }
                   }
                 }
               },
-              limit: { type: "number", description: "Number of sessions to return (default 50)" },
+              limit: { type: "number", description: "Number of sessions to return" },
               offset: { type: "number", description: "Offset for pagination" },
               sort: {
                 type: "object",
                 properties: {
-                  field: { type: "string", description: "Field to sort by (startedAt, duration, errorCount, etc.)" },
+                  field: { type: "string", description: "Field to sort by" },
                   order: { type: "string", enum: ["asc", "desc"], description: "Sort order" }
                 }
               }
@@ -248,6 +271,10 @@ class OpenReplayMCP {
 
       try {
         switch (name) {
+          case "list_projects":
+            return await this.listProjects();
+          case "get_user_sessions":
+            return await this.getUserSessions(args);
           case "search_sessions":
             return await this.searchSessions(args);
           case "get_session_details":
@@ -284,15 +311,58 @@ class OpenReplayMCP {
     });
   }
 
+  private async listProjects() {
+    const response = await this.api.get(`/v1/projects`);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response.data, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async getUserSessions(args: any) {
+    const { userId, startDate, endDate } = args;
+    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
+      params: {
+        start_date: startDate ? new Date(startDate).getTime() : undefined,
+        end_date: endDate ? new Date(endDate).getTime() : undefined
+      }
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response.data, null, 2),
+        },
+      ],
+    };
+  }
+
   private async searchSessions(args: any) {
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, {
-      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
-      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
-      filters: args.filters || [],
-      limit: args.limit || 50,
-      page: args.offset ? Math.floor(args.offset / (args.limit || 50)) + 1 : 1,
-      order: args.sort?.order?.toUpperCase() || "DESC",
-      sort: args.sort?.field || "startTs"
+    // Note: The v1 API with API keys has limited endpoints
+    // For full session search, JWT authentication is required
+    // This uses the user sessions endpoint as an alternative
+    if (!args.userId) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Session search requires a userId when using API key authentication. For full search capabilities, JWT authentication is needed.",
+          },
+        ],
+      };
+    }
+    
+    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${args.userId}/sessions`, {
+      params: {
+        start_date: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+        end_date: args.endDate ? new Date(args.endDate).getTime() : Date.now()
+      }
     });
 
     return {
@@ -307,23 +377,21 @@ class OpenReplayMCP {
 
   private async getSessionDetails(args: any) {
     const { sessionId } = args;
-    const response = await this.api.get(`/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}/replay`);
-
+    // Session replay details not available via v1 API
+    // Only events are available
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: "Session replay details are not available via API key authentication. Use get_session_events instead or use JWT authentication for full access.",
         },
       ],
     };
   }
 
   private async getSessionEvents(args: any) {
-    const { sessionId, eventTypes, startTime, endTime } = args;
-    const response = await this.api.get(`/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}/events`, {
-      params: { eventTypes, startTime, endTime }
-    });
+    const { sessionId } = args;
+    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/sessions/${sessionId}/events`);
 
     return {
       content: [
@@ -336,65 +404,26 @@ class OpenReplayMCP {
   }
 
   private async aggregateSessions(args: any) {
-    // OpenReplay uses different endpoints for metrics/dashboards
-    // This aggregates sessions using the search endpoint with specific parameters
-    const searchParams = {
-      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
-      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
-      filters: args.filters || [],
-      group: args.groupBy || [],
-      metrics: args.metrics || ["count"]
-    };
-
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, searchParams);
-
-    // Process the response to calculate aggregated metrics
-    const data = response.data;
-    const aggregated = {
-      total: data.total || 0,
-      metrics: {} as any,
-      groupedData: data.sessions || []
-    };
-
-    // Calculate requested metrics
-    if (args.metrics?.includes("count")) {
-      aggregated.metrics.count = data.total;
-    }
-    if (args.metrics?.includes("avg_duration") && data.sessions) {
-      const durations = data.sessions.map((s: any) => s.duration || 0);
-      aggregated.metrics.avg_duration = durations.reduce((a: number, b: number) => a + b, 0) / durations.length;
-    }
-    if (args.metrics?.includes("error_rate") && data.sessions) {
-      const errorSessions = data.sessions.filter((s: any) => s.errorsCount > 0);
-      aggregated.metrics.error_rate = (errorSessions.length / data.sessions.length) * 100;
-    }
-
+    // Aggregation requires access to the full sessions/search endpoint
+    // which is not available via API key authentication
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(aggregated, null, 2),
+          text: "Session aggregation is not available via API key authentication. You can retrieve individual user sessions instead.",
         },
       ],
     };
   }
 
   private async getUserJourney(args: any) {
-    const { userId, startDate, endDate, includeEvents } = args;
-    // Use the sessions search with user filter
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, {
-      startTimestamp: startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000,
-      endTimestamp: endDate ? new Date(endDate).getTime() : Date.now(),
-      filters: [
-        {
-          type: "USER_ID",
-          value: [userId],
-          operator: "is"
-        }
-      ],
-      limit: 100,
-      order: "ASC",
-      sort: "startTs"
+    const { userId, startDate, endDate } = args;
+    // Use the v1 API user sessions endpoint
+    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
+      params: {
+        start_date: startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000,
+        end_date: endDate ? new Date(endDate).getTime() : Date.now()
+      }
     });
 
     return {
@@ -408,64 +437,36 @@ class OpenReplayMCP {
   }
 
   private async getErrorsIssues(args: any) {
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/errors`, {
-      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
-      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
-      filters: args.errorTypes?.map((type: string) => ({
-        type: "ERROR_TYPE",
-        value: [type],
-        operator: "is"
-      })) || [],
-      limit: 50,
-      page: 1
-    });
-
+    // Error analysis requires JWT authentication
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: "Error analysis is not available via API key authentication. JWT authentication is required for this feature.",
         },
       ],
     };
   }
 
   private async getFunnelAnalysis(args: any) {
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/funnels`, {
-      name: "Analysis",
-      filter: {
-        startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
-        endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
-        filters: args.filters || []
-      },
-      stages: args.steps || []
-    });
-
+    // Funnel analysis requires JWT authentication
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: "Funnel analysis is not available via API key authentication. JWT authentication is required for this feature.",
         },
       ],
     };
   }
 
   private async getPerformanceMetrics(args: any) {
-    // Use the metrics endpoint for performance data
-    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/metrics/try`, {
-      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
-      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
-      metrics: args.metrics || ["dom_content_loaded_time", "first_contentful_paint_time"],
-      groupBy: args.groupBy || [],
-      filters: []
-    });
-
+    // Performance metrics require JWT authentication
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: "Performance metrics are not available via API key authentication. JWT authentication is required for this feature.",
         },
       ],
     };
