@@ -37,9 +37,15 @@ cp .env.example .env
 
 2. Configure your OpenReplay credentials:
 ```env
-# OPENREPLAY_API_URL is optional - defaults to https://app.openreplay.com
-# For self-hosted instances, use your instance URL
-OPENREPLAY_API_KEY=your_api_key
+# Your OpenReplay workspace URL
+# For cloud: https://your-workspace.openreplay.com
+# For self-hosted: Your instance URL
+OPENREPLAY_API_URL=https://your-workspace.openreplay.com
+
+# Organization API Key (find in Preferences > Account > Organization API Key)
+OPENREPLAY_API_KEY=your_organization_api_key
+
+# Project key from your project settings
 OPENREPLAY_PROJECT_KEY=your_project_key
 ```
 
@@ -54,9 +60,9 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "command": "node",
       "args": ["/path/to/openreplay-mcp/dist/index.js"],
       "env": {
-        "OPENREPLAY_API_URL": "https://api.openreplay.com",
-        "OPENREPLAY_API_KEY": "your_api_key",
-        "OPENREPLAY_PROJECT_ID": "your_project_id"
+        "OPENREPLAY_API_URL": "https://your-workspace.openreplay.com",
+        "OPENREPLAY_API_KEY": "your_organization_api_key",
+        "OPENREPLAY_PROJECT_KEY": "your_project_key"
       }
     }
   }

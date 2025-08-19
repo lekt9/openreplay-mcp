@@ -14,7 +14,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Configuration
-const OPENREPLAY_API_URL = process.env.OPENREPLAY_API_URL || "https://app.openreplay.com";
+const OPENREPLAY_API_URL = process.env.OPENREPLAY_API_URL || "https://api.openreplay.com";
 const OPENREPLAY_API_KEY = process.env.OPENREPLAY_API_KEY || "";
 const OPENREPLAY_PROJECT_KEY = process.env.OPENREPLAY_PROJECT_KEY || process.env.OPENREPLAY_PROJECT_ID || "";
 
@@ -37,7 +37,7 @@ class OpenReplayMCP {
 
     // Initialize API client
     this.api = axios.create({
-      baseURL: `${OPENREPLAY_API_URL}/api`,
+      baseURL: OPENREPLAY_API_URL,
       headers: {
         "Authorization": OPENREPLAY_API_KEY,
         "Content-Type": "application/json",
@@ -312,7 +312,7 @@ class OpenReplayMCP {
   }
 
   private async listProjects() {
-    const response = await this.api.get(`/v1/projects`);
+    const response = await this.api.get(`/api/v1/projects`);
 
     return {
       content: [
@@ -326,7 +326,7 @@ class OpenReplayMCP {
 
   private async getUserSessions(args: any) {
     const { userId, startDate, endDate } = args;
-    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
+    const response = await this.api.get(`/api/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
       params: {
         start_date: startDate ? new Date(startDate).getTime() : undefined,
         end_date: endDate ? new Date(endDate).getTime() : undefined
@@ -358,7 +358,7 @@ class OpenReplayMCP {
       };
     }
     
-    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${args.userId}/sessions`, {
+    const response = await this.api.get(`/api/v1/${OPENREPLAY_PROJECT_KEY}/users/${args.userId}/sessions`, {
       params: {
         start_date: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
         end_date: args.endDate ? new Date(args.endDate).getTime() : Date.now()
@@ -391,7 +391,7 @@ class OpenReplayMCP {
 
   private async getSessionEvents(args: any) {
     const { sessionId } = args;
-    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/sessions/${sessionId}/events`);
+    const response = await this.api.get(`/api/v1/${OPENREPLAY_PROJECT_KEY}/sessions/${sessionId}/events`);
 
     return {
       content: [
@@ -419,7 +419,7 @@ class OpenReplayMCP {
   private async getUserJourney(args: any) {
     const { userId, startDate, endDate } = args;
     // Use the v1 API user sessions endpoint
-    const response = await this.api.get(`/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
+    const response = await this.api.get(`/api/v1/${OPENREPLAY_PROJECT_KEY}/users/${userId}/sessions`, {
       params: {
         start_date: startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000,
         end_date: endDate ? new Date(endDate).getTime() : Date.now()
