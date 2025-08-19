@@ -285,13 +285,14 @@ class OpenReplayMCP {
   }
 
   private async searchSessions(args: any) {
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/sessions/search`, {
-      startDate: args.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      endDate: args.endDate || new Date().toISOString(),
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, {
+      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
       filters: args.filters || [],
       limit: args.limit || 50,
-      offset: args.offset || 0,
-      sort: args.sort || { field: "startedAt", order: "desc" }
+      page: args.offset ? Math.floor(args.offset / (args.limit || 50)) + 1 : 1,
+      order: args.sort?.order?.toUpperCase() || "DESC",
+      sort: args.sort?.field || "startTs"
     });
 
     return {
@@ -306,7 +307,7 @@ class OpenReplayMCP {
 
   private async getSessionDetails(args: any) {
     const { sessionId } = args;
-    const response = await this.api.get(`/v1/projects/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}`);
+    const response = await this.api.get(`/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}/replay`);
 
     return {
       content: [
@@ -320,7 +321,7 @@ class OpenReplayMCP {
 
   private async getSessionEvents(args: any) {
     const { sessionId, eventTypes, startTime, endTime } = args;
-    const response = await this.api.get(`/v1/projects/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}/events`, {
+    const response = await this.api.get(`/${OPENREPLAY_PROJECT_ID}/sessions/${sessionId}/events`, {
       params: { eventTypes, startTime, endTime }
     });
 
@@ -335,19 +336,44 @@ class OpenReplayMCP {
   }
 
   private async aggregateSessions(args: any) {
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/sessions/aggregate`, {
-      startDate: args.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      endDate: args.endDate || new Date().toISOString(),
-      metrics: args.metrics,
-      groupBy: args.groupBy || [],
-      filters: args.filters || []
-    });
+    // OpenReplay uses different endpoints for metrics/dashboards
+    // This aggregates sessions using the search endpoint with specific parameters
+    const searchParams = {
+      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
+      filters: args.filters || [],
+      group: args.groupBy || [],
+      metrics: args.metrics || ["count"]
+    };
+
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, searchParams);
+
+    // Process the response to calculate aggregated metrics
+    const data = response.data;
+    const aggregated = {
+      total: data.total || 0,
+      metrics: {} as any,
+      groupedData: data.sessions || []
+    };
+
+    // Calculate requested metrics
+    if (args.metrics?.includes("count")) {
+      aggregated.metrics.count = data.total;
+    }
+    if (args.metrics?.includes("avg_duration") && data.sessions) {
+      const durations = data.sessions.map((s: any) => s.duration || 0);
+      aggregated.metrics.avg_duration = durations.reduce((a: number, b: number) => a + b, 0) / durations.length;
+    }
+    if (args.metrics?.includes("error_rate") && data.sessions) {
+      const errorSessions = data.sessions.filter((s: any) => s.errorsCount > 0);
+      aggregated.metrics.error_rate = (errorSessions.length / data.sessions.length) * 100;
+    }
 
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: JSON.stringify(aggregated, null, 2),
         },
       ],
     };
@@ -355,8 +381,20 @@ class OpenReplayMCP {
 
   private async getUserJourney(args: any) {
     const { userId, startDate, endDate, includeEvents } = args;
-    const response = await this.api.get(`/v1/projects/${OPENREPLAY_PROJECT_ID}/users/${userId}/journey`, {
-      params: { startDate, endDate, includeEvents }
+    // Use the sessions search with user filter
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/sessions/search`, {
+      startTimestamp: startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000,
+      endTimestamp: endDate ? new Date(endDate).getTime() : Date.now(),
+      filters: [
+        {
+          type: "USER_ID",
+          value: [userId],
+          operator: "is"
+        }
+      ],
+      limit: 100,
+      order: "ASC",
+      sort: "startTs"
     });
 
     return {
@@ -370,12 +408,16 @@ class OpenReplayMCP {
   }
 
   private async getErrorsIssues(args: any) {
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/errors/search`, {
-      startDate: args.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      endDate: args.endDate || new Date().toISOString(),
-      errorTypes: args.errorTypes || [],
-      minOccurrences: args.minOccurrences || 1,
-      groupBy: args.groupBy || "message"
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/errors`, {
+      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
+      filters: args.errorTypes?.map((type: string) => ({
+        type: "ERROR_TYPE",
+        value: [type],
+        operator: "is"
+      })) || [],
+      limit: 50,
+      page: 1
     });
 
     return {
@@ -389,11 +431,14 @@ class OpenReplayMCP {
   }
 
   private async getFunnelAnalysis(args: any) {
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/funnels/analyze`, {
-      steps: args.steps,
-      startDate: args.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      endDate: args.endDate || new Date().toISOString(),
-      filters: args.filters || []
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/funnels`, {
+      name: "Analysis",
+      filter: {
+        startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+        endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
+        filters: args.filters || []
+      },
+      stages: args.steps || []
     });
 
     return {
@@ -407,12 +452,13 @@ class OpenReplayMCP {
   }
 
   private async getPerformanceMetrics(args: any) {
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/performance/metrics`, {
-      startDate: args.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      endDate: args.endDate || new Date().toISOString(),
-      metrics: args.metrics,
+    // Use the metrics endpoint for performance data
+    const response = await this.api.post(`/${OPENREPLAY_PROJECT_ID}/metrics/try`, {
+      startTimestamp: args.startDate ? new Date(args.startDate).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000,
+      endTimestamp: args.endDate ? new Date(args.endDate).getTime() : Date.now(),
+      metrics: args.metrics || ["dom_content_loaded_time", "first_contentful_paint_time"],
       groupBy: args.groupBy || [],
-      percentiles: args.percentiles || [50, 75, 90, 95, 99]
+      filters: []
     });
 
     return {
@@ -426,17 +472,14 @@ class OpenReplayMCP {
   }
 
   private async executeCustomQuery(args: any) {
+    // OpenReplay doesn't expose direct query access, but we can use the search with complex filters
     const { query, parameters } = args;
-    const response = await this.api.post(`/v1/projects/${OPENREPLAY_PROJECT_ID}/query`, {
-      query,
-      parameters: parameters || {}
-    });
-
+    
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: "Custom queries are not directly supported. Please use the specific search and filter tools instead.",
         },
       ],
     };
